@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<robot name="my_mecanum_bot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <xacro:include filename="bot_core.xacro" />
+    <xacro:include filename="wheel.xacro" />
+        <!--
+        BUG FIX 1: The file on disk is gazebo_controller.xacro, not
+        gazebo_control.xacro. Xacro will throw a FileNotFoundError (or
+        silently produce an incomplete URDF) with the wrong name.
+    -->
+    <xacro:include filename="gazebo_controller.xacro" />
+
+
+    <xacro:mecanum_wheel prefix="front_left" x_reflect="1" y_reflect="1" />
+    <xacro:mecanum_wheel prefix="front_right" x_reflect="1" y_reflect="-1" />
+    <xacro:mecanum_wheel prefix="back_left" x_reflect="-1" y_reflect="1" />
+    <xacro:mecanum_wheel prefix="back_right" x_reflect="-1" y_reflect="-1" />
+
+</robot>
