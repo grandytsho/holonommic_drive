@@ -4,24 +4,36 @@
         <plugin
             filename="ignition-gazebo-mecanum-drive-system"
             name="ignition::gazebo::systems::MecanumDrive">
-            
+
             <front_left_joint>front_left_joint</front_left_joint>
             <front_right_joint>front_right_joint</front_right_joint>
             <back_left_joint>back_left_joint</back_left_joint>
             <back_right_joint>back_right_joint</back_right_joint>
-            <wheel_separation>0.34</wheel_separation> <wheelbase>0.4</wheelbase>
+
+            <!-- Updated to match actual mesh radius: 0.0323 m -->
+            <wheel_radius>0.0323</wheel_radius>
+
             <!--
-                wheelbase is the distance between front and rear wheel centres:
-                  chassis_length/2 - wheel_radius = 0.25 - 0.05 = 0.20 per side
-                  total = 0.40  (this was already correct)
+                wheel_separation = chassis_width/2 + wheel_thickness/2 (per side) x2
+                = 0.15 + (0.0352/2) = 0.15 + 0.0176 = 0.1676 per side
+                total = 0.3352
             -->
-            <wheel_radius>0.05</wheel_radius>
+            <wheel_separation>0.3352</wheel_separation>
+
+            <!--
+                wheelbase = (chassis_length/2 - wheel_radius) (per side) x2
+                = 0.25 - 0.0323 = 0.2177 per side
+                total = 0.4354
+            -->
+            <wheelbase>0.4354</wheelbase>
+
+            <!-- Required: without this the plugin ignores /cmd_vel from the bridge -->
+            <topic>/cmd_vel</topic>
 
             <publish_odom>true</publish_odom>
             <publish_odom_tf>true</publish_odom_tf>
             <publish_wheel_tf>true</publish_wheel_tf>
 
-            <topic>/cmd_vel</topic>
             <odom_topic>/odom</odom_topic>
             <tf_topic>/tf</tf_topic>
             <frame_id>odom</frame_id>
@@ -32,7 +44,8 @@
         <plugin
             filename="ignition-gazebo-joint-state-publisher-system"
             name="ignition::gazebo::systems::JointStatePublisher">
-            <topic>/joint_states</topic> <joint_name>front_left_joint</joint_name>
+            <topic>/joint_states</topic>
+            <joint_name>front_left_joint</joint_name>
             <joint_name>front_right_joint</joint_name>
             <joint_name>back_left_joint</joint_name>
             <joint_name>back_right_joint</joint_name>
