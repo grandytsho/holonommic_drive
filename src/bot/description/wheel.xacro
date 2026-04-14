@@ -1,52 +1,52 @@
 <?xml version="1.0"?>
-<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+<!--
+    xmlns:ignition declared here so xacro passes ignition:expressed_in
+    through to the SDF parser without stripping it.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro"
+       xmlns:ignition="https://ignitionrobotics.org">
 
-    <!--
-        Dimensions measured directly from the STL bounding boxes (units: meters).
-        Do NOT change these back to 0.05/0.04 — those were guesses and are wrong.
-
-        wheel_radius    = 0.0323  (half of X/Y span of mesh)
-        wheel_thickness = 0.0352  (Z span of mesh)
-        mesh_z_offset   = 0.0024  (mesh was exported with centroid slightly off-origin;
-                                   negating this in the visual origin re-centers it)
-    -->
     <xacro:property name="wheel_radius"    value="0.0323"/>
     <xacro:property name="wheel_thickness" value="0.0352"/>
     <xacro:property name="mesh_z_offset"   value="0.0024"/>
-
     <xacro:property name="mesh_pkg" value="file://$(find bot)/meshes"/>
 
     <!--
-        mecanum_wheel macro
-        params:
-          prefix     — joint/link name prefix (front_left, front_right, …)
-          x_reflect  — +1 front, -1 rear
-          y_reflect  — +1 left,  -1 right
-          mesh_file  — STL filename (without path), e.g. front_left_wheel_X3.STL
+    WHY THIS WORKS
+    ==============
+    DART normally evaluates fdir1 in the wheel link frame. As the wheel spins,
+    fdir1 rotates with it and averages to isotropic over one revolution this
+    is exactly why strafing does not work with plain cylinder wheels under DART.
 
-        Right-side wheels are the mirror image of left-side wheels.
-        We achieve this by scaling the mesh by (1, -1, 1) in Y, which flips the
-        roller angle from one diagonal to the other — exactly the physical
-        difference between left and right mecanum wheels. The collision geometry
-        stays a plain cylinder regardless of side (the MecanumDrive plugin handles
-        kinematics; we don't need physically-accurate roller contacts here).-->
-    <xacro:macro name="mecanum_wheel" params="prefix x_reflect y_reflect mesh_file">
+    The ignition:expressed_in="chassis" attribute (from gz-physics PR -#224)
+    instructs DART to evaluate fdir1 in the CHASSIS frame instead. The chassis
+    does not rotate with the wheel spin, so the friction anisotropy stays
+    locked at the correct 45-degree roller angle throughout the simulation.
+
+    DART then sees:
+      mu  = 1.0 along fdir1      (roller grips the ground in this direction)
+      mu2 = 0.0 perpendicular    (roller slides freely in this direction)
+
+    This is the physical contact behavior of a real mecanum roller, achieved
+    with a plain cylinder collision -no roller meshes, no extra joints,
+    no physics engine swap required.
+
+    fdir1 per corner (standard mecanum X-pattern, vectors in chassis XY plane):
+      front_left  : "1 -1 0"   rollers slope front-right to back-left
+      front_right : "1  1 0"   rollers slope front-left  to back-right
+      back_left   : "1  1 0"
+      back_right  : "1 -1 0"
+
+    References:
+      https://github.com/gazebosim/gz-sim/pull/683
+      https://github.com/gazebosim/gz-physics/pull/224
+    -->
+
+    <xacro:macro name="mecanum_wheel" params="prefix x_reflect y_reflect mesh_file fdir">
 
         <joint name="${prefix}_joint" type="continuous">
             <parent link="chassis"/>
             <child  link="${prefix}_wheel"/>
-            <!--
-                Joint X: place wheel near the chassis corner.
-                         chassis_length/2 - wheel_radius keeps the wheel edge
-                         flush with the chassis end rather than sticking out.
-                Joint Y: move outward by half chassis width + half wheel thickness
-                         so the wheel face sits just outside the chassis body.
-                Joint Z: -0.05 drops the wheel below the chassis centre so it
-                         sits on the ground (chassis is raised 0.1 m by chassis_joint).
-                RPY pi/2 around X: rotates the child frame so the wheel's Z axis
-                         (its spin axis in the mesh) aligns with the world Y axis,
-                         i.e. the wheel rolls fore/aft as expected.
-            -->
             <origin
                 xyz="${x_reflect * (chassis_length/2 - wheel_radius)}
                      ${y_reflect * (chassis_width/2  + wheel_thickness/2)}
@@ -57,54 +57,59 @@
 
         <link name="${prefix}_wheel">
 
-            <!-- ── VISUAL: actual mecanum mesh ──────────────────────────────── -->
             <visual>
                 <origin xyz="0 0 ${-mesh_z_offset}" rpy="0 0 0"/>
-                <!--
-                    mesh_z_offset correction: the STL centroid sits 0.0024 m above
-                    the mesh geometric centre. Shifting by -mesh_z_offset in the
-                    visual origin pulls it back to the joint centre so the wheel
-                    doesn't appear to float or sink relative to the joint frame.
-                -->
                 <geometry>
-                    <mesh
-                        filename="${mesh_pkg}/${mesh_file}"
-                        scale="1 ${y_reflect} 1"/>
-                    <!--
-                        scale Y by y_reflect:
-                          left  wheels (y_reflect= 1) → scale  1  1  1 → mesh as-is
-                          right wheels (y_reflect=-1) → scale  1 -1  1 → mirrored in Y,
-                          which flips the roller diagonal from \ to /
-                    -->
+                    <mesh filename="${mesh_pkg}/${mesh_file}"
+                          scale="1 ${y_reflect} 1"/>
                 </geometry>
             </visual>
 
-            <!-- ── COLLISION: simple cylinder ───────────────────────────────── -->
-            <!--
-                Using a cylinder (not the mesh) for collision because:
-                  1. The MecanumDrive plugin computes holonomic kinematics algebraically;
-                     it does not depend on contact geometry.
-                  2. Cylinder collision is stable and fast. Mesh collision with
-                     44 k triangles and free-spinning roller sub-geometry causes
-                     numerical instability in DART's contact solver.
-                  3. The cylinder dimensions match the mesh bounding circle so
-                     ground clearance and chassis clearance are still correct.
-            -->
+            <!-- Cylinder collision: stable under DART, correct size from mesh -->
             <collision>
                 <geometry>
                     <cylinder radius="${wheel_radius}" length="${wheel_thickness}"/>
                 </geometry>
             </collision>
 
-            <!-- ── INERTIA: solid cylinder approximation ────────────────────── -->
-            <xacro:inertial_cylinder
-                mass="0.2"
-                length="${wheel_thickness}"
-                radius="${wheel_radius}">
+            <xacro:inertial_cylinder mass="0.2"
+                length="${wheel_thickness}" radius="${wheel_radius}">
                 <origin xyz="0 0 0" rpy="0 0 0"/>
             </xacro:inertial_cylinder>
 
         </link>
 
+        <!-- ── Physics-accurate anisotropic friction surface ─────────────── -->
+        <gazebo reference="${prefix}_wheel">
+            <collision>
+                <surface>
+                    <friction>
+                        <ode>
+                            <mu>1.0</mu>
+                            <mu2>0.0</mu2>
+                            <!--
+                                THE KEY LINE.
+                                expressed_in="chassis" locks this direction to
+                                the chassis frame, not the spinning wheel frame.
+                                This is what makes DART produce real mecanum
+                                contact physics without roller meshes.
+                            -->
+                            <fdir1 ignition:expressed_in="chassis">${fdir}</fdir1>
+                            <slip1>0.01</slip1>
+                            <slip2>0.01</slip2>
+                        </ode>
+                    </friction>
+                    <contact>
+                        <ode>
+                            <kp>1000000.0</kp>
+                            <kd>100.0</kd>
+                            <max_vel>1.0</max_vel>
+                            <min_depth>0.001</min_depth>
+                        </ode>
+                    </contact>
+                </surface>
+            </collision>
+            <material>Gazebo/Black</material>
+        </gazebo>
     </xacro:macro>
 </robot>

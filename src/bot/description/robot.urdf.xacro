@@ -5,24 +5,40 @@
     <xacro:include filename="wheel.xacro" />
     <xacro:include filename="gazebo_controller.xacro" />
 
+    <!--
+        fdir parameter = the roller grip direction in the chassis XY plane.
+
+        Standard mecanum X-pattern:
+          The diagonal goes from \  for FL and BR  → fdir "1 -1 0"
+          The diagonal goes from /  for FR and BL  → fdir "1  1 0"
+
+        These must match the physical roller orientation on your real wheels.
+        If your robot drifts diagonally instead of strafing cleanly, swap the
+        fdir values on the affected corners.
+    -->
+
     <xacro:mecanum_wheel
         prefix="front_left"
         x_reflect="1"  y_reflect="1"
-        mesh_file="front_left_wheel_X3.STL"/>
+        mesh_file="front_left_wheel_X3.STL"
+        fdir="1 -1 0"/>
 
     <xacro:mecanum_wheel
         prefix="front_right"
         x_reflect="1"  y_reflect="-1"
-        mesh_file="front_left_wheel_X3.STL"/>
+        mesh_file="front_left_wheel_X3.STL"
+        fdir="1 1 0"/>
 
     <xacro:mecanum_wheel
         prefix="back_left"
         x_reflect="-1" y_reflect="1"
-        mesh_file="back_left_wheel_X3.STL"/>
+        mesh_file="back_left_wheel_X3.STL"
+        fdir="1 1 0"/>
 
     <xacro:mecanum_wheel
         prefix="back_right"
         x_reflect="-1" y_reflect="-1"
-        mesh_file="back_left_wheel_X3.STL"/>
+        mesh_file="back_left_wheel_X3.STL"
+        fdir="1 -1 0"/>
 
 </robot>
