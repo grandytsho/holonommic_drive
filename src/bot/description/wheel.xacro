@@ -124,15 +124,15 @@
                                             accelerating; 0.5 gives realistic
                                             roller drag without killing strafing.
                             -->
-                            <mu>10.0</mu>
-                            <mu2>0.5</mu2>
+                            <mu>5.0</mu>
+                            <mu2>0.0</mu2>
 
                             <!--
                                 THE KEY LINE — locks friction direction to the
                                 chassis frame so the anisotropy doesn't rotate
                                 away as the wheel spins. See explanation above.
                             -->
-                            <fdir1 ignition:expressed_in="chassis">${fdir}</fdir1>
+                            <fdir1 ignition:expressed_in="base_link">${fdir}</fdir1>
 
                             <!--
                                 slip1/slip2: small values damp contact chatter.
