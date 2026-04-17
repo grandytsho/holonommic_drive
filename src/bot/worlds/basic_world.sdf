@@ -3,12 +3,6 @@
     <world name="robot_world">
         <plugin filename="ignition-gazebo-physics-system" name="ignition::gazebo::systems::Physics" />
         <plugin filename="ignition-gazebo-scene-broadcaster-system" name="ignition::gazebo::systems::SceneBroadcaster" />
-        <!--
-            BUG FIX 5 (part a): ros_gz_sim's `create` command calls the
-            /world/robot_world/create service, which is provided by this plugin.
-            Without it, spawning the robot silently fails — Gazebo starts but
-            the robot never appears.
-        -->
         <plugin filename="ignition-gazebo-user-commands-system" name="ignition::gazebo::systems::UserCommands" />
 
         <light type="directional" name="sun">
@@ -23,11 +17,40 @@
             <static>true</static>
             <link name="link">
                 <collision name="collision">
-                    <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+                    <geometry>
+                        <plane>
+                            <normal>0 0 1</normal>
+                            <size>100 100</size>
+                        </plane>
+                    </geometry>
+
+                    <surface>
+                        <friction>
+                            <ode>
+                                <mu>1.0</mu> 
+                                <mu2>1.0</mu2>
+                            </ode>
+                        </friction>
+                        <contact>
+                            <ode>
+                                <kp>1000000.0</kp>
+                                <kd>100.0</kd>
+                            </ode>
+                        </contact>
+                    </surface>
                 </collision>
                 <visual name="visual">
-                    <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
-                    <material><ambient>0.8 0.8 0.8 1</ambient></material>
+                    <geometry>
+                        <plane>
+                            <normal>0 0 1</normal>
+                            <size>100 100</size>
+                        </plane>
+                    </geometry>
+                    <material>
+                        <ambient>0.8 0.8 0.8 1</ambient>
+                        <diffuse>0.8 0.8 0.8 1</diffuse>
+                        <specular>0.8 0.8 0.8 1</specular>
+                    </material>
                 </visual>
             </link>
         </model>

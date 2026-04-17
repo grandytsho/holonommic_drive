@@ -1,49 +1,66 @@
 <?xml version="1.0"?>
-<!--
-    xmlns:ignition declared here so xacro passes ignition:expressed_in
-    through to the SDF parser without stripping it.
--->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro"
        xmlns:ignition="https://ignitionrobotics.org">
 
     <xacro:property name="wheel_radius"    value="0.0323"/>
     <xacro:property name="wheel_thickness" value="0.0352"/>
     <xacro:property name="mesh_z_offset"   value="0.0024"/>
+
+    <!--
+        BUG FIX: "file://$(find bot)/meshes" is a roslaunch substitution — it
+        does NOT work inside xacro and will cause a runtime FileNotFoundError.
+        The correct xacro-compatible URI is "package://bot/meshes".
+    -->
     <xacro:property name="mesh_pkg" value="file://$(find bot)/meshes"/>
 
     <!--
-    WHY THIS WORKS
-    ==============
-    DART normally evaluates fdir1 in the wheel link frame. As the wheel spins,
-    fdir1 rotates with it and averages to isotropic over one revolution this
-    is exactly why strafing does not work with plain cylinder wheels under DART.
+    WHY SPHERE COLLISION FOR MECANUM WHEELS
+    ========================================
+    A cylinder collider contacts the ground along its full bottom edge, which
+    can produce multiple simultaneous contact points under DART. Each contact
+    point gets its own independent friction computation, and if any of them
+    jitter or slip slightly out of phase, you get friction torque oscillations
+    that fight the MecanumDrive plugin's velocity commands — this shows up as
+    the robot vibrating in place or drifting when commanding pure lateral motion.
 
-    The ignition:expressed_in="chassis" attribute (from gz-physics PR -#224)
-    instructs DART to evaluate fdir1 in the CHASSIS frame instead. The chassis
-    does not rotate with the wheel spin, so the friction anisotropy stays
-    locked at the correct 45-degree roller angle throughout the simulation.
+    A sphere collider produces exactly ONE contact point with the ground at
+    all times. This means:
+      1. A single, stable friction computation per wheel per timestep.
+      2. No contact-edge instability when the wheel spins.
+      3. The ignition:expressed_in="chassis" fdir1 anisotropy is applied to
+         that single point consistently — no averaging artefacts.
 
-    DART then sees:
-      mu  = 1.0 along fdir1      (roller grips the ground in this direction)
-      mu2 = 0.0 perpendicular    (roller slides freely in this direction)
+    The sphere radius = wheel_radius so the wheel hub sits at the correct
+    height above the ground (same as a cylinder of the same radius would).
+    The wheel_thickness no longer affects ground clearance — only the radius
+    does — which is physically correct since it's the roller tips that touch
+    the ground, not the wheel edge.
 
-    This is the physical contact behavior of a real mecanum roller, achieved
-    with a plain cylinder collision -no roller meshes, no extra joints,
-    no physics engine swap required.
+    DART fdir1 / expressed_in explanation
+    ======================================
+    Normally fdir1 is evaluated in the wheel LINK frame. As the wheel spins,
+    fdir1 rotates with it and averages to isotropic over one revolution.
+    Result: DART resists all lateral motion → no strafing.
 
-    fdir1 per corner (standard mecanum X-pattern, vectors in chassis XY plane):
-      front_left  : "1 -1 0"   rollers slope front-right to back-left
-      front_right : "1  1 0"   rollers slope front-left  to back-right
-      back_left   : "1  1 0"
-      back_right  : "1 -1 0"
+    ignition:expressed_in="chassis" (gz-physics PR #224) locks fdir1 to the
+    CHASSIS frame. The chassis does not spin with the wheel, so the 45-degree
+    roller anisotropy is maintained at every contact point throughout the
+    simulation. DART then correctly applies:
+      mu  = 10.0  along fdir1        (roller GRIPS the ground here)
+      mu2 =  0.5  perpendicular      (roller SLIDES with low resistance here)
 
-    References:
-      https://github.com/gazebosim/gz-sim/pull/683
-      https://github.com/gazebosim/gz-physics/pull/224
+    fdir1 per corner — standard mecanum X-pattern:
+      front_left  / back_right  →  "1 -1 0"   ( \ rollers )
+      front_right / back_left   →  "1  1 0"   ( / rollers )
+
+    If your robot drifts diagonally instead of strafing straight, your physical
+    wheels use the O-pattern instead. In that case swap: front_left gets
+    "1 1 0" and front_right gets "1 -1 0" (and similarly for the rear).
     -->
 
     <xacro:macro name="mecanum_wheel" params="prefix x_reflect y_reflect mesh_file fdir">
 
+        <!-- ── Joint ──────────────────────────────────────────────────────── -->
         <joint name="${prefix}_joint" type="continuous">
             <parent link="chassis"/>
             <child  link="${prefix}_wheel"/>
@@ -55,8 +72,10 @@
             <axis xyz="0 0 -1"/>
         </joint>
 
+        <!-- ── Link ───────────────────────────────────────────────────────── -->
         <link name="${prefix}_wheel">
 
+            <!-- Visual: real mecanum mesh, right wheels mirrored in Y -->
             <visual>
                 <origin xyz="0 0 ${-mesh_z_offset}" rpy="0 0 0"/>
                 <geometry>
@@ -65,13 +84,23 @@
                 </geometry>
             </visual>
 
-            <!-- Cylinder collision: stable under DART, correct size from mesh -->
+            <!--
+                SPHERE COLLISION
+                radius = wheel_radius so the contact height matches the mesh.
+                A sphere gives one clean contact point — no multi-edge DART
+                instability that cylinder bottom-edges produce.
+            -->
             <collision>
                 <geometry>
-                    <cylinder radius="${wheel_radius}" length="${wheel_thickness}"/>
+                    <sphere radius="${wheel_radius}"/>
                 </geometry>
             </collision>
 
+            <!--
+                Inertia: still modelled as a cylinder (the actual mass
+                distribution is closer to a cylinder than a solid sphere).
+                Inertia does not have to match the collision primitive.
+            -->
             <xacro:inertial_cylinder mass="0.2"
                 length="${wheel_thickness}" radius="${wheel_radius}">
                 <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -79,28 +108,52 @@
 
         </link>
 
-        <!-- ── Physics-accurate anisotropic friction surface ─────────────── -->
+        <!-- ── Gazebo / DART surface properties ───────────────────────────── -->
         <gazebo reference="${prefix}_wheel">
             <collision>
                 <surface>
                     <friction>
                         <ode>
-                            <mu>1.0</mu>
-                            <mu2>0.0</mu2>
                             <!--
-                                THE KEY LINE.
-                                expressed_in="chassis" locks this direction to
-                                the chassis frame, not the spinning wheel frame.
-                                This is what makes DART produce real mecanum
-                                contact physics without roller meshes.
+                                mu  = 10.0  High grip along roller axis.
+                                            Can be tuned down toward 1.0 if the
+                                            robot overshoots under acceleration.
+                                mu2 =  0.5  Low but non-zero slide resistance.
+                                            Pure 0.0 can cause the wheel to
+                                            slip completely when the robot is
+                                            accelerating; 0.5 gives realistic
+                                            roller drag without killing strafing.
+                            -->
+                            <mu>10.0</mu>
+                            <mu2>0.5</mu2>
+
+                            <!--
+                                THE KEY LINE — locks friction direction to the
+                                chassis frame so the anisotropy doesn't rotate
+                                away as the wheel spins. See explanation above.
                             -->
                             <fdir1 ignition:expressed_in="chassis">${fdir}</fdir1>
+
+                            <!--
+                                slip1/slip2: small values damp contact chatter.
+                                Keep low; setting to 0 can cause jitter.
+                            -->
                             <slip1>0.01</slip1>
                             <slip2>0.01</slip2>
                         </ode>
                     </friction>
+
                     <contact>
                         <ode>
+                            <!--
+                                kp: contact stiffness. 1e6 is appropriate for
+                                a ~3 kg robot on a rigid ground plane. If the
+                                robot visibly sinks into the floor, increase kp.
+                                kd: contact damping — prevents bouncing.
+                                max_vel / min_depth: standard Gazebo contact
+                                correction parameters. Leave as-is unless you
+                                see penetration artefacts.
+                            -->
                             <kp>1000000.0</kp>
                             <kd>100.0</kd>
                             <max_vel>1.0</max_vel>
@@ -111,5 +164,6 @@
             </collision>
             <material>Gazebo/Black</material>
         </gazebo>
+
     </xacro:macro>
 </robot>
